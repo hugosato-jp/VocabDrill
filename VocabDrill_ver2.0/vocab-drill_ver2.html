@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VocabDrill</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0e0e14; }
+  button { cursor: pointer; }
+  input { outline: none; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const KEY_DATA    = "vocabdrill-v4-data";
+const KEY_GAS_URL = "vocabdrill-v3-gasurl";
+
+const THEMES = {
+  ocean:  { name:"Ocean ",  emoji:"🌊", bg:"#0e0e14", surface:"#171720", surface2:"#1e1e2a", border:"#2a2a38", accent:"#6f8fff", accentGlow:"rgba(111,143,255,0.13)", green:"#4ade80", red:"#f87171", text:"#e4e4f0", textSub:"#7c7c98", textMuted:"#4a4a62" },
+  dusk:   { name:" Dusk ",   emoji:"🌆", bg:"#110e18", surface:"#1a1525", surface2:"#221c30", border:"#2e2640", accent:"#a78bfa", accentGlow:"rgba(167,139,250,0.13)", green:"#4ade80", red:"#f87171", text:"#ede8f5", textSub:"#8878aa", textMuted:"#504268" },
+  forest: { name:"Forest", emoji:"🌿", bg:"#0b1410", surface:"#141f18", surface2:"#1c2a20", border:"#253428", accent:"#34d399", accentGlow:"rgba(52,211,153,0.13)",  green:"#4ade80", red:"#f87171", text:"#e2ede8", textSub:"#6a9a7c", textMuted:"#3d5e48" },
+  ember:  { name:"Ember ",  emoji:"🔥", bg:"#13100c", surface:"#1e1812", surface2:"#271f18", border:"#362c20", accent:"#fb923c", accentGlow:"rgba(251,146,60,0.13)",  green:"#4ade80", red:"#f87171", text:"#f0ebe4", textSub:"#9a7e64", textMuted:"#5e4a36" },
+  lime:   { name:" Lime ",   emoji:"🍋‍🟩",  bg:"#0a1a0a", surface:"#111f11", surface2:"#182618",  border:"#223322", accent:"#a3e635", accentGlow:"rgba(163,230,53,0.13)",  green:"#4ade80", red:"#f87171",  text:"#e8f5e0", textSub:"#6a9a50", textMuted:"#3d5e30",},
+  lemon:  { name:"Lemon ",  emoji:"🍋",  bg:"#141200", surface:"#1e1c00", surface2:"#282500",  border:"#38340a", accent:"#facc15", accentGlow:"rgba(250,204,21,0.13)",  green:"#4ade80", red:"#f87171",  text:"#f5f0d0", textSub:"#9a8c40", textMuted:"#5e5420",},
+  tomato: { name:"Tomato", emoji:"🍅",  bg:"#150a0a", surface:"#1f1010", surface2:"#281818",  border:"#3a1e1e", accent:"#ef4444", accentGlow:"rgba(239,68,68,0.13)",  green:"#4ade80", red:"#fb923c",  text:"#f5e8e8", textSub:"#9a6060", textMuted:"#5e3030",},
+  sakura: { name:"Sakura", emoji:"🌸",  bg:"#160e12", surface:"#201318", surface2:"#2a1a20",  border:"#3d2030", accent:"#f472b6", accentGlow:"rgba(244,114,182,0.13)",  green:"#4ade80", red:"#f87171",  text:"#f5e8ee", textSub:"#a06080", textMuted:"#5e3045",},
+  light:  { name:"Light ",  emoji:"☀️", bg:"#f5f5f7", surface:"#ffffff", surface2:"#ededf0", border:"#d8d8e0", accent:"#5b6ef5", accentGlow:"rgba(91,110,245,0.10)",  green:"#16a34a", red:"#dc2626", text:"#1a1a2e", textSub:"#6b6b88", textMuted:"#a0a0bc" },
+};
+const THEME_KEYS = Object.keys(THEMES);
+
+const uid = () => Math.random().toString(36).slice(2,9);
+const shuffle = arr => { const a=[...arr]; for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; };
+const reinsert = (queue, word) => { const len=queue.length; if(!len) return [word]; const min=Math.min(2,len); const pos=min+Math.floor(Math.random()*(len-min+1)); const next=[...queue]; next.splice(pos,0,{...word,_retry:true}); return next; };
+const moveItem = (arr, idx, dir) => { const a=[...arr]; const t=idx+dir; if(t<0||t>=a.length) return a; [a[idx],a[t]]=[a[t],a[idx]]; return a; };
+
+const DEFAULT_DATA = { theme:"ocean", categories:[{ id:"cat1", name:"サンプル", folders:[
+  { id:"demo1", name:"単語 1〜100", words:[
+    {id:"w1",word:"ephemeral", meaning:"短命な、はかない",        example:"The ephemeral beauty of cherry blossoms."},
+    {id:"w2",word:"eloquent",  meaning:"雄弁な、説得力のある",    example:"She gave an eloquent speech."},
+    {id:"w3",word:"resilient", meaning:"回復力のある、しなやかな", example:"Children are remarkably resilient."},
+  ]},
+  { id:"demo2", name:"単語 101〜200", words:[
+    {id:"w4",word:"ambiguous", meaning:"曖昧な、多義的な",  example:"The contract was full of ambiguous language."},
+    {id:"w5",word:"tenacious", meaning:"粘り強い、しつこい",example:"She was tenacious in her pursuit of justice."},
+  ]},
+]}]};
+
+const migrate = raw => { const d=JSON.parse(raw); if(d.folders&&!d.categories) return {theme:"ocean",categories:[{id:uid(),name:"マイ単語帳",folders:d.folders}]}; if(!d.theme) d.theme="ocean"; return d; };
+const lsGet = k => { try{return localStorage.getItem(k);}catch{return null;} };
+const lsSet = (k,v) => { try{localStorage.setItem(k,v);}catch{} };
+const gasGet = async url => { const r=await fetch(url,{redirect:"follow"}); const j=await r.json(); if(!j.ok) throw new Error(j.error); return j.data; };
+const gasPost = async (url,data) => { const r=await fetch(url,{method:"POST",body:JSON.stringify({data}),redirect:"follow"}); const j=await r.json(); if(!j.ok) throw new Error(j.error); };
+
+function App() {
+  const [data,setData]=useState(null);
+  const [gasUrl,setGasUrl]=useState("");
+  const [screen,setScreen]=useState("home");
+  const [activeCatId,setActiveCatId]=useState(null);
+  const [activeFolderId,setActiveFolderId]=useState(null);
+  const [quizState,setQuizState]=useState(null);
+  const [syncStatus,setSyncStatus]=useState("idle");
+  const [syncMsg,setSyncMsg]=useState("");
+
+  useEffect(()=>{(async()=>{
+    const savedUrl=lsGet(KEY_GAS_URL)??"";
+    const savedData=lsGet(KEY_DATA);
+    setGasUrl(savedUrl);
+    if(savedUrl){
+      setSyncStatus("loading");
+      try{
+        let remote=await gasGet(savedUrl);
+        if(typeof remote==="string") remote=migrate(remote);
+        else if(!remote.categories) remote=migrate(JSON.stringify(remote));
+        setData(remote); lsSet(KEY_DATA,JSON.stringify(remote));
+        setSyncStatus("ok"); setSyncMsg("同期完了"); setTimeout(()=>{setSyncStatus("idle");setSyncMsg("");},2000);
+      }catch{ setData(savedData?migrate(savedData):DEFAULT_DATA); setSyncStatus("error"); setSyncMsg("オフライン — ローカルデータを使用中"); }
+    } else { setData(savedData?migrate(savedData):DEFAULT_DATA); }
+  })();},[]);
+
+  useEffect(()=>{ if(data) document.body.style.background=THEMES[data.theme]?.bg??"#0e0e14"; },[data?.theme]);
+
+  const persist=useCallback(async nd=>{
+    setData(nd); lsSet(KEY_DATA,JSON.stringify(nd));
+    if(gasUrl){
+      setSyncStatus("saving"); setSyncMsg("同期中…");
+      try{ await gasPost(gasUrl,nd); setSyncStatus("ok"); setSyncMsg("同期完了"); setTimeout(()=>{setSyncStatus("idle");setSyncMsg("");},2000); }
+      catch{ setSyncStatus("error"); setSyncMsg("同期失敗（ローカルには保存済み）"); setTimeout(()=>{setSyncStatus("idle");setSyncMsg("");},3000); }
+    } else { setSyncStatus("ok"); setSyncMsg("保存済"); setTimeout(()=>{setSyncStatus("idle");setSyncMsg("");},1200); }
+  },[gasUrl]);
+
+  const saveGasUrl=useCallback(async url=>{
+    const t=url.trim(); setGasUrl(t); lsSet(KEY_GAS_URL,t);
+    if(t){ setSyncStatus("loading"); setSyncMsg("接続中…");
+      try{ let r=await gasGet(t); if(typeof r==="string") r=migrate(r); else if(!r.categories) r=migrate(JSON.stringify(r)); setData(r); lsSet(KEY_DATA,JSON.stringify(r)); setSyncStatus("ok"); setSyncMsg("接続・同期完了！"); setTimeout(()=>{setSyncStatus("idle");setSyncMsg("");},2000); }
+      catch(e){ setSyncStatus("error"); setSyncMsg("接続失敗: "+e.message); setTimeout(()=>{setSyncStatus("idle");setSyncMsg("");},4000); }
+    }
+  },[]);
+
+  if(!data) return <Loader/>;
+  const C=THEMES[data.theme]??THEMES.ocean;
+  const activeCat=data.categories.find(c=>c.id===activeCatId);
+  const activeFolder=activeCat?.folders.find(f=>f.id===activeFolderId);
+
+  const launchQuiz=(words,label,direction)=>{
+    const q=shuffle(words);
+    setQuizState({current:q[0],rest:q.slice(1),label,direction,revealed:false,totalOriginal:words.length,correctIds:new Set(),wrongCount:0,correctCount:0});
+    setScreen("quiz");
+  };
+  const updCat=(id,fn)=>persist({...data,categories:data.categories.map(c=>c.id===id?fn(c):c)});
+  const updFolder=(catId,fId,fn)=>updCat(catId,c=>({...c,folders:c.folders.map(f=>f.id===fId?fn(f):f)}));
+
+  if(screen==="quiz"&&quizState) return <QuizScreen C={C} state={quizState} setState={setQuizState} onDone={()=>setScreen(activeFolderId?"folder":activeCatId?"category":"home")} onBack={()=>setScreen(activeFolderId?"folder":activeCatId?"category":"home")}/>;
+  if(screen==="edit"&&activeFolder) return <EditScreen C={C} folder={activeFolder} saveMsg={syncMsg} onBack={()=>setScreen("folder")} onChange={upd=>updFolder(activeCatId,activeFolderId,()=>upd)}/>;
+  if(screen==="settings") return <SettingsScreen C={C} gasUrl={gasUrl} onSave={saveGasUrl} onBack={()=>setScreen("home")} syncStatus={syncStatus} syncMsg={syncMsg} currentTheme={data.theme} onTheme={t=>persist({...data,theme:t})}/>;
+  if(screen==="folder"&&activeFolder) return <FolderScreen C={C} folder={activeFolder} onBack={()=>setScreen("category")} onEdit={()=>setScreen("edit")} onQuiz={dir=>launchQuiz(activeFolder.words,`${activeCat.name} / ${activeFolder.name}`,dir)} onRename={name=>updFolder(activeCatId,activeFolderId,f=>({...f,name}))}/>;
+  if(screen==="category"&&activeCat) return <CategoryScreen C={C} category={activeCat} onBack={()=>{setActiveCatId(null);setScreen("home");}} onOpenFolder={id=>{setActiveFolderId(id);setScreen("folder");}} onAddFolder={name=>updCat(activeCatId,c=>({...c,folders:[...c.folders,{id:uid(),name,words:[]}]}))} onDeleteFolder={id=>updCat(activeCatId,c=>({...c,folders:c.folders.filter(f=>f.id!==id)}))} onMoveFolder={(idx,dir)=>updCat(activeCatId,c=>({...c,folders:moveItem(c.folders,idx,dir)}))} onQuizAll={dir=>{const all=activeCat.folders.flatMap(f=>f.words);if(!all.length)return;setActiveFolderId(null);launchQuiz(all,activeCat.name,dir);}} onRenameCategory={name=>updCat(activeCatId,c=>({...c,name}))}/>;
+  return <HomeScreen C={C} data={data} syncStatus={syncStatus} syncMsg={syncMsg} gasUrl={gasUrl} onOpen={id=>{setActiveCatId(id);setScreen("category");}} onAddCat={name=>persist({...data,categories:[...data.categories,{id:uid(),name,folders:[]}]})} onDeleteCat={id=>persist({...data,categories:data.categories.filter(c=>c.id!==id)})} onMoveCat={(idx,dir)=>persist({...data,categories:moveItem(data.categories,idx,dir)})} onSettings={()=>setScreen("settings")} onQuizAll={dir=>{const all=data.categories.flatMap(c=>c.folders.flatMap(f=>f.words));if(!all.length)return;setActiveCatId(null);setActiveFolderId(null);launchQuiz(all,"全カテゴリ",dir);}}/>;
+}
+function HomeScreen({C,data,syncStatus,syncMsg,gasUrl,onOpen,onAddCat,onDeleteCat,onMoveCat,onSettings,onQuizAll}) {
+  const [newName,setNewName]=useState(""); const [adding,setAdding]=useState(false); const [delConfirm,setDelConfirm]=useState(null); const [ordering,setOrdering]=useState(false);
+  const S=makeS(C); const totalWords=data.categories.reduce((s,c)=>s+c.folders.reduce((ss,f)=>ss+f.words.length,0),0);
+  const submit=()=>{if(!newName.trim())return;onAddCat(newName.trim());setNewName("");setAdding(false);};
+  const CAT_COLORS=["#6f8fff","#f97316","#22d3ee","#a78bfa","#34d399","#fb7185","#facc15"];
+  return (<div style={S.root}>
+    <div style={S.homeHead}>
+      <div><div style={S.logo}>VOCAB<span style={{color:C.accent}}>DRILL</span></div><div style={S.logoSub}>{data.categories.length}カテゴリ · {totalWords}語</div></div>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
+        <button style={S.settingsBtn} onClick={onSettings}><span style={{color:syncStatus==="error"?C.red:syncStatus==="ok"?C.green:syncStatus==="loading"||syncStatus==="saving"?C.accent:C.textMuted}}>{gasUrl?(syncStatus==="loading"||syncStatus==="saving"?"⟳":syncStatus==="ok"?"✓":syncStatus==="error"?"✕":"☁"):"☁"} 設定</span></button>
+        {totalWords>0&&<div style={{textAlign:"right"}}><div style={S.allLabel}>全単語クイズ</div><div style={{display:"flex",gap:6}}><button style={S.chipBtn} onClick={()=>onQuizAll("word2meaning")}>英→日</button><button style={S.chipBtn} onClick={()=>onQuizAll("meaning2word")}>日→英</button></div></div>}
+      </div>
+    </div>
+    {syncMsg&&syncStatus==="error"&&<div style={{...S.syncBadge,...S.syncError,margin:"8px 20px 0"}}>{syncMsg}</div>}
+    <div style={S.folderList}>
+      {data.categories.length>1&&<button style={{...S.ghostSmall,marginBottom:8}} onClick={()=>setOrdering(o=>!o)}>{ordering?"✓ 並び替え完了":"↕ 並び替え"}</button>}
+      {data.categories.map((cat,i)=>{
+        const wc=cat.folders.reduce((s,f)=>s+f.words.length,0);
+        return (<div key={cat.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+          {ordering&&<div style={{display:"flex",flexDirection:"column",gap:2}}><button style={S.orderBtn} onClick={()=>onMoveCat(i,-1)} disabled={i===0}>▲</button><button style={S.orderBtn} onClick={()=>onMoveCat(i,1)} disabled={i===data.categories.length-1}>▼</button></div>}
+          <div style={{...S.folderCard,flex:1}} onClick={()=>!ordering&&onOpen(cat.id)}>
+            <div style={{...S.folderTab,background:CAT_COLORS[i%CAT_COLORS.length]}}/>
+            <div style={S.folderBody}><span style={{fontSize:20}}>🗂</span><div style={{flex:1}}><div style={S.folderName}>{cat.name}</div><div style={S.folderSub}>{cat.folders.length}フォルダ · {wc}語</div></div>{!ordering&&<button style={S.delBtn} onClick={e=>{e.stopPropagation();setDelConfirm(cat.id);}}>✕</button>}</div>
+          </div>
+        </div>);
+      })}
+      {adding?(<div style={S.addForm}><input autoFocus style={S.input} placeholder="カテゴリ名（例：英検2級）" value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/><div style={{display:"flex",gap:8}}><button style={S.btnPrimary} onClick={submit}>作成</button><button style={S.btnGhost} onClick={()=>{setAdding(false);setNewName("");}}>キャンセル</button></div></div>)
+      :(<button style={S.addBtn} onClick={()=>setAdding(true)}><span style={{fontSize:18,marginRight:6}}>＋</span>新しいカテゴリ</button>)}
+    </div>
+    {delConfirm&&<Modal C={C} msg={`「${data.categories.find(c=>c.id===delConfirm)?.name}」を削除しますか？\n中のフォルダと単語もすべて消えます。`} okLabel="削除" danger onOk={()=>{onDeleteCat(delConfirm);setDelConfirm(null);}} onCancel={()=>setDelConfirm(null)}/>}
+  </div>);
+}
+
+function CategoryScreen({C,category,onBack,onOpenFolder,onAddFolder,onDeleteFolder,onMoveFolder,onQuizAll,onRenameCategory}) {
+  const [newName,setNewName]=useState(""); const [adding,setAdding]=useState(false); const [delConfirm,setDelConfirm]=useState(null); const [ordering,setOrdering]=useState(false); const [editingName,setEditingName]=useState(false); const [nameVal,setNameVal]=useState(category.name);
+  const S=makeS(C); const FOLDER_COLORS=["#6f8fff","#22d3ee","#a78bfa","#34d399","#fb7185","#f97316","#facc15"];
+  const totalWords=category.folders.reduce((s,f)=>s+f.words.length,0);
+  const submit=()=>{if(!newName.trim())return;onAddFolder(newName.trim());setNewName("");setAdding(false);};
+  const commitName=()=>{onRenameCategory(nameVal.trim()||category.name);setEditingName(false);};
+  return (<div style={S.root}>
+    <div style={S.screenHead}>
+      <button style={S.backBtn} onClick={onBack}>← ホーム</button>
+      {editingName?<input autoFocus style={{...S.input,flex:1,margin:"0 8px"}} value={nameVal} onChange={e=>setNameVal(e.target.value)} onBlur={commitName} onKeyDown={e=>e.key==="Enter"&&commitName()}/>
+      :<div style={{...S.screenTitle,cursor:"pointer"}} onClick={()=>setEditingName(true)}>{category.name} <span style={{fontSize:11,color:C.textMuted}}>✏️</span></div>}
+    </div>
+    {totalWords>0&&<div style={{padding:"10px 20px 0",display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:11,color:C.textMuted,fontFamily:"sans-serif"}}>カテゴリ全体：</span><button style={S.chipBtn} onClick={()=>onQuizAll("word2meaning")}>英→日</button><button style={S.chipBtn} onClick={()=>onQuizAll("meaning2word")}>日→英</button></div>}
+    <div style={S.folderList}>
+      {category.folders.length>1&&<button style={{...S.ghostSmall,marginBottom:8}} onClick={()=>setOrdering(o=>!o)}>{ordering?"✓ 並び替え完了":"↕ 並び替え"}</button>}
+      {category.folders.map((f,i)=>(<div key={f.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}>
+        {ordering&&<div style={{display:"flex",flexDirection:"column",gap:2}}><button style={S.orderBtn} onClick={()=>onMoveFolder(i,-1)} disabled={i===0}>▲</button><button style={S.orderBtn} onClick={()=>onMoveFolder(i,1)} disabled={i===category.folders.length-1}>▼</button></div>}
+        <div style={{...S.folderCard,flex:1}} onClick={()=>!ordering&&onOpenFolder(f.id)}>
+          <div style={{...S.folderTab,background:FOLDER_COLORS[i%FOLDER_COLORS.length]}}/>
+          <div style={S.folderBody}><span style={{fontSize:20}}>📁</span><div style={{flex:1}}><div style={S.folderName}>{f.name}</div><div style={S.folderSub}>{f.words.length}語</div></div>{!ordering&&<button style={S.delBtn} onClick={e=>{e.stopPropagation();setDelConfirm(f.id);}}>✕</button>}</div>
+        </div>
+      </div>))}
+      {adding?(<div style={S.addForm}><input autoFocus style={S.input} placeholder="フォルダ名（例：単語 1〜100）" value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/><div style={{display:"flex",gap:8}}><button style={S.btnPrimary} onClick={submit}>作成</button><button style={S.btnGhost} onClick={()=>{setAdding(false);setNewName("");}}>キャンセル</button></div></div>)
+      :(<button style={S.addBtn} onClick={()=>setAdding(true)}><span style={{fontSize:18,marginRight:6}}>＋</span>新しいフォルダ</button>)}
+    </div>
+    {delConfirm&&<Modal C={C} msg={`「${category.folders.find(f=>f.id===delConfirm)?.name}」を削除しますか？\n中の単語もすべて消えます。`} okLabel="削除" danger onOk={()=>{onDeleteFolder(delConfirm);setDelConfirm(null);}} onCancel={()=>setDelConfirm(null)}/>}
+  </div>);
+}
+
+function FolderScreen({C,folder,onBack,onEdit,onQuiz,onRename}) {
+  const [editing,setEditing]=useState(false); const [nameVal,setNameVal]=useState(folder.name); const [filter,setFilter]=useState("");
+  const S=makeS(C); const filtered=folder.words.filter(w=>w.word.toLowerCase().includes(filter.toLowerCase())||w.meaning.includes(filter));
+  const commit=()=>{onRename(nameVal.trim()||folder.name);setEditing(false);};
+  return (<div style={S.root}>
+    <div style={S.screenHead}>
+      <button style={S.backBtn} onClick={onBack}>← 戻る</button>
+      {editing?<input autoFocus style={{...S.input,flex:1,margin:"0 8px"}} value={nameVal} onChange={e=>setNameVal(e.target.value)} onBlur={commit} onKeyDown={e=>e.key==="Enter"&&commit()}/>
+      :<div style={{...S.screenTitle,cursor:"pointer"}} onClick={()=>setEditing(true)}>{folder.name} <span style={{fontSize:11,color:C.textMuted}}>✏️</span></div>}
+      <button style={S.editBtn} onClick={onEdit}>単語を編集</button>
+    </div>
+    <div style={S.quizPanel}><div style={S.qpLabel}>{folder.words.length}語 — クイズ開始</div><div style={{display:"flex",gap:10}}><button style={folder.words.length?S.qbig:S.qbigDis} onClick={()=>folder.words.length&&onQuiz("word2meaning")}>🇬🇧 英 → 日</button><button style={folder.words.length?S.qbig:S.qbigDis} onClick={()=>folder.words.length&&onQuiz("meaning2word")}>🇯🇵 日 → 英</button></div>{!folder.words.length&&<div style={S.emptyNote}>単語を追加してから始めてください</div>}</div>
+    {folder.words.length>0&&<div style={S.section}><input style={{...S.input,marginBottom:10,fontSize:13}} placeholder="🔍 検索..." value={filter} onChange={e=>setFilter(e.target.value)}/>{filtered.map(w=>(<div key={w.id} style={S.wordView}><span style={S.wWord}>{w.word}</span><span style={S.wMeaning}>{w.meaning}</span>{w.example&&<span style={S.wEx}>{w.example}</span>}</div>))}{!filtered.length&&<div style={S.emptyNote}>該当なし</div>}</div>}
+  </div>);
+}
+
+function EditScreen({C,folder,saveMsg,onBack,onChange}) {
+  const [form,setForm]=useState({word:"",meaning:"",example:""}); const [editId,setEditId]=useState(null); const [filter,setFilter]=useState(""); const wordRef=useRef(null);
+  const S=makeS(C);
+  const submit=()=>{if(!form.word.trim()||!form.meaning.trim())return;if(editId)onChange({...folder,words:folder.words.map(w=>w.id===editId?{...form,id:editId}:w)});else onChange({...folder,words:[...folder.words,{...form,id:uid()}]});setForm({word:"",meaning:"",example:""});setEditId(null);wordRef.current?.focus();};
+  const startEdit=w=>{setForm({word:w.word,meaning:w.meaning,example:w.example||""});setEditId(w.id);wordRef.current?.focus();};
+  const del=id=>{onChange({...folder,words:folder.words.filter(w=>w.id!==id)});if(editId===id){setForm({word:"",meaning:"",example:""});setEditId(null);}};
+  const filtered=folder.words.filter(w=>w.word.toLowerCase().includes(filter.toLowerCase())||w.meaning.includes(filter));
+  return (<div style={S.root}>
+    <div style={S.screenHead}><button style={S.backBtn} onClick={onBack}>← {folder.name}</button><span style={S.screenTitle}>単語を編集</span>{saveMsg&&<span style={{fontSize:11,color:saveMsg.includes("失敗")?C.red:saveMsg.includes("中")?C.accent:C.green,fontFamily:"sans-serif"}}>{saveMsg}</span>}</div>
+    <div style={S.formBox}>
+      {[{key:"word",label:"英単語 *",ph:"例: ephemeral",ref:wordRef},{key:"meaning",label:"意味 *",ph:"例: 短命な、はかない"},{key:"example",label:"例文（任意）",ph:"例: The ephemeral beauty..."}].map(({key,label,ph,ref})=>(<div key={key} style={{display:"flex",flexDirection:"column",gap:4}}><label style={S.label}>{label}</label><input ref={ref||null} style={S.input} placeholder={ph} value={form[key]} onChange={e=>setForm(f=>({...f,[key]:e.target.value}))} onKeyDown={key==="example"?e=>e.key==="Enter"&&submit():undefined}/></div>))}
+      <div style={{display:"flex",gap:8}}><button style={form.word&&form.meaning?S.btnPrimary:S.btnDis} onClick={submit}>{editId?"✏️ 更新":"＋ 追加"}</button>{editId&&<button style={S.btnGhost} onClick={()=>{setForm({word:"",meaning:"",example:""});setEditId(null);}}>キャンセル</button>}</div>
+    </div>
+    <div style={S.section}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><span style={{fontSize:12,color:C.textSub,fontFamily:"sans-serif"}}>{folder.words.length}語</span><input style={{...S.input,width:140,fontSize:13}} placeholder="検索..." value={filter} onChange={e=>setFilter(e.target.value)}/></div>
+      {!filtered.length&&<div style={S.emptyNote}>単語がまだありません</div>}
+      {filtered.map(w=>(<div key={w.id} style={{...S.wordView,...(editId===w.id?{border:`1px solid ${C.accent}`,background:C.accentGlow}:{})}}><div style={{flex:1}}><span style={S.wWord}>{w.word}</span><span style={S.wMeaning}>{w.meaning}</span>{w.example&&<span style={S.wEx}>{w.example}</span>}</div><div style={{display:"flex",gap:4,flexShrink:0}}><button style={S.iconBtn} onClick={()=>startEdit(w)}>✏️</button><button style={S.iconBtn} onClick={()=>del(w.id)}>🗑️</button></div></div>))}
+    </div>
+  </div>);
+}
+
+function QuizScreen({C,state,setState,onDone,onBack}) {
+  const {current,rest,label,direction,revealed,totalOriginal,correctIds,wrongCount,correctCount}=state;
+  const S=makeS(C); const done=!current;
+  const reveal=()=>setState(s=>({...s,revealed:true}));
+  const markOk=()=>{const ni=new Set(correctIds);ni.add(current.id);if(!rest.length)setState(s=>({...s,current:null,correctIds:ni,correctCount:correctCount+1}));else setState(s=>({...s,current:rest[0],rest:rest.slice(1),revealed:false,correctIds:ni,correctCount:correctCount+1}));};
+  const markNg=()=>{const nr=reinsert(rest,current);setState(s=>({...s,current:nr[0],rest:nr.slice(1),revealed:false,wrongCount:wrongCount+1}));};
+  if(done){
+    const acc=correctIds.size>0?Math.round((correctIds.size/(correctIds.size+wrongCount))*100):0;
+    return (<div style={S.root}><div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",gap:12,padding:"0 24px"}}>
+      <div style={{fontSize:52}}>{acc>=80?"🎉":acc>=50?"💪":"📚"}</div>
+      <div style={{fontSize:34,fontWeight:700,letterSpacing:2}}>完了！</div>
+      <div style={{fontSize:14,color:C.textSub,fontFamily:"sans-serif"}}>{label}</div>
+      <div style={{display:"flex",alignItems:"center",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"16px 0",width:"100%",marginTop:8}}>
+        {[{val:correctIds.size,label:"正解",color:C.green},{val:wrongCount,label:"不正解",color:C.red},{val:acc+"%",label:"正答率",color:C.accent}].map((item,i,arr)=>(<React.Fragment key={i}><div style={{flex:1,textAlign:"center"}}><div style={{fontSize:28,fontWeight:700,color:item.color}}>{item.val}</div><div style={{fontSize:11,color:C.textSub,fontFamily:"sans-serif",marginTop:2}}>{item.label}</div></div>{i<arr.length-1&&<div style={{width:1,height:36,background:C.border}}/>}</React.Fragment>))}
+      </div>
+      <button style={{...S.btnPrimary,marginTop:16}} onClick={onDone}>戻る</button>
+    </div></div>);
+  }
+  const q=direction==="word2meaning"?current.word:current.meaning;
+  const a=direction==="word2meaning"?current.meaning:current.word;
+  const prog=Math.round((correctIds.size/totalOriginal)*100);
+  return (<div style={S.root}>
+    <div style={S.screenHead}><button style={S.backBtn} onClick={onBack}>← 戻る</button><div style={{flex:1,textAlign:"center"}}><span style={{fontFamily:"sans-serif",fontSize:13,fontWeight:600}}>{correctIds.size} / {totalOriginal}</span>{current._retry&&<span style={{marginLeft:6,fontSize:10,color:C.red,fontFamily:"sans-serif",background:"rgba(248,113,113,0.12)",padding:"1px 7px",borderRadius:99}}>再出題</span>}</div><span style={S.dirChip}>{direction==="word2meaning"?"英→日":"日→英"}</span></div>
+    <div style={S.bar}><div style={{...S.barFill,width:`${prog}%`}}/></div>
+    <div style={{padding:"8px 20px 0",fontSize:11,color:C.textMuted,fontFamily:"sans-serif"}}>📁 {label}{rest.length>0&&<span style={{marginLeft:8}}>残り {rest.length+1}枚</span>}</div>
+    <div style={S.quizCard}>
+      <div style={{fontSize:10,color:C.textMuted,fontFamily:"sans-serif",letterSpacing:2,textTransform:"uppercase"}}>{direction==="word2meaning"?"この英単語の意味は？":"この意味の英単語は？"}</div>
+      <div style={{fontSize:30,fontWeight:700,lineHeight:1.3}}>{q}</div>
+      {!revealed&&direction==="word2meaning"&&current.example&&<div style={S.hint}>💡 {current.example.replace(new RegExp(`\\b${current.word}\\b`,"gi"),"▢▢▢")}</div>}
+      {revealed&&(<div style={{display:"flex",flexDirection:"column",gap:8}}><div style={{height:1,background:C.border}}/><div style={{fontSize:10,color:C.accent,fontFamily:"sans-serif",letterSpacing:2,textTransform:"uppercase"}}>答え</div><div style={{fontSize:22,fontWeight:700,color:C.green}}>{a}</div>{current.example&&<div style={{fontSize:12,color:C.textSub,fontFamily:"sans-serif",lineHeight:1.65}}>📝 {current.example}</div>}</div>)}
+    </div>
+    <div style={{padding:"14px 20px 0"}}>
+      {!revealed?<button style={S.revealBtn} onClick={reveal}>答えを見る</button>
+      :<div style={{display:"flex",gap:10}}>
+        <button style={S.wrongBtn} onClick={markNg}><span style={{fontSize:22,fontWeight:700}}>✗</span><span>不正解</span><span style={{fontSize:10,opacity:0.7}}>再出題される</span></button>
+        <button style={S.correctBtn} onClick={markOk}><span style={{fontSize:22,fontWeight:700}}>✓</span><span>正解</span><span style={{fontSize:10,opacity:0.7}}>次へ進む</span></button>
+      </div>}
+    </div>
+  </div>);
+}
+
+function SettingsScreen({C,gasUrl,onSave,onBack,syncStatus,syncMsg,currentTheme,onTheme}) {
+  const [url,setUrl]=useState(gasUrl); const S=makeS(C);
+  return (<div style={S.root}>
+    <div style={S.screenHead}><button style={S.backBtn} onClick={onBack}>← ホーム</button><span style={S.screenTitle}>設定</span></div>
+    <div style={S.settingsBox}>
+      <div><div style={{...S.label,marginBottom:10}}>カラーテーマ</div><div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {THEME_KEYS.map(key=>{const t=THEMES[key];const active=currentTheme===key;return(<button key={key} onClick={()=>onTheme(key)} style={{padding:"10px 14px",borderRadius:10,border:`2px solid ${active?t.accent:t.border}`,background:active?t.surface:t.bg,color:active?t.text:t.textSub,fontFamily:"sans-serif",fontSize:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:70,boxShadow:active?`0 0 0 2px ${t.accent}44`:"none"}}><span style={{fontSize:20}}>{t.emoji}</span><span>{t.name}</span></button>);})}
+      </div></div>
+      <div style={S.stepBlock}><div style={S.stepTitle}>☁ Google Sheets 同期</div>
+        {["Google スプレッドシートを新規作成","「拡張機能」→「Apps Script」を開く","VocabDrill.gs のコードを貼り付けて保存","「デプロイ」→「新しいデプロイ」→ ウェブアプリ","アクセスできるユーザー：全員 でデプロイ","発行された URL を下に貼り付け"].map((s,i)=>(<div key={i} style={S.stepRow}><span style={S.stepNum}>{i+1}</span><span style={S.stepText}>{s}</span></div>))}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        <label style={S.label}>ウェブアプリ URL</label>
+        <input style={S.input} placeholder="https://script.google.com/macros/s/..." value={url} onChange={e=>setUrl(e.target.value)}/>
+        <button style={url.trim()?S.btnPrimary:S.btnDis} onClick={()=>onSave(url)}>接続・同期する</button>
+        {url&&<button style={S.btnGhost} onClick={()=>{setUrl("");onSave("");}}>URLをクリア</button>}
+      </div>
+      {syncMsg&&<div style={{...S.syncBadge,...(syncStatus==="error"?S.syncError:syncStatus==="ok"?S.syncOk:S.syncLoading)}}>{syncStatus==="loading"||syncStatus==="saving"?"⟳ ":syncStatus==="ok"?"✓ ":"✕ "}{syncMsg}</div>}
+      <div style={S.settingsNote}>URLを設定しない場合、このデバイスのみに保存されます。</div>
+    </div>
+  </div>);
+}
+
+function Modal({C,msg,okLabel,danger,onOk,onCancel}) {
+  return (<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,padding:24}}>
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,padding:24,maxWidth:320,width:"100%"}}>
+      <div style={{fontSize:15,lineHeight:1.7,marginBottom:20,whiteSpace:"pre-line",fontFamily:"sans-serif",color:C.text}}>{msg}</div>
+      <div style={{display:"flex",gap:10}}>
+        <button style={{padding:"10px 20px",background:danger?C.red:C.accent,border:"none",borderRadius:10,color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"sans-serif"}} onClick={onOk}>{okLabel}</button>
+        <button style={{padding:"10px 16px",background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:C.textSub,fontSize:14,cursor:"pointer",fontFamily:"sans-serif"}} onClick={onCancel}>キャンセル</button>
+      </div>
+    </div>
+  </div>);
+}
+function Loader(){return <div style={{background:"#0e0e14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"#6f8fff",fontSize:28}}>●</div>;}
+
+const makeS=C=>({
+  root:{fontFamily:"Georgia,'Times New Roman',serif",background:C.bg,minHeight:"100vh",color:C.text,maxWidth:480,margin:"0 auto",boxSizing:"border-box",paddingBottom:48},
+  homeHead:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"40px 22px 20px",borderBottom:`1px solid ${C.border}`},
+  logo:{fontSize:30,fontWeight:700,letterSpacing:4},
+  logoSub:{fontSize:12,color:C.textSub,marginTop:4,fontFamily:"sans-serif"},
+  settingsBtn:{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",cursor:"pointer",fontFamily:"sans-serif",fontSize:12,color:C.text},
+  allLabel:{fontSize:10,color:C.textMuted,fontFamily:"sans-serif",letterSpacing:1,marginBottom:4,textTransform:"uppercase"},
+  chipBtn:{padding:"5px 12px",background:C.accentGlow,border:`1px solid ${C.accent}`,borderRadius:99,color:C.accent,fontSize:12,cursor:"pointer",fontFamily:"sans-serif"},
+  ghostSmall:{background:"none",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",color:C.textSub,fontSize:12,cursor:"pointer",fontFamily:"sans-serif"},
+  folderList:{padding:"14px 20px"},
+  folderCard:{display:"flex",borderRadius:12,overflow:"hidden",border:`1px solid ${C.border}`,cursor:"pointer",background:C.surface},
+  folderTab:{width:5,flexShrink:0},
+  folderBody:{display:"flex",alignItems:"center",flex:1,padding:"13px 14px",gap:10},
+  folderName:{fontSize:14,fontWeight:600},
+  folderSub:{fontSize:12,color:C.textSub,marginTop:2,fontFamily:"sans-serif"},
+  delBtn:{background:"none",border:"none",color:C.textMuted,cursor:"pointer",fontSize:13,padding:"2px 6px"},
+  orderBtn:{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:4,color:C.textSub,fontSize:11,padding:"2px 5px",cursor:"pointer",lineHeight:1},
+  addBtn:{width:"100%",padding:"13px",background:"transparent",border:`1.5px dashed ${C.border}`,borderRadius:12,color:C.textSub,fontSize:14,cursor:"pointer",fontFamily:"sans-serif",display:"flex",alignItems:"center",justifyContent:"center"},
+  addForm:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:16,display:"flex",flexDirection:"column",gap:10},
+  screenHead:{display:"flex",alignItems:"center",gap:8,padding:"13px 18px",borderBottom:`1px solid ${C.border}`,minHeight:50},
+  backBtn:{background:"none",border:"none",color:C.textSub,cursor:"pointer",fontSize:13,fontFamily:"sans-serif",padding:0,flexShrink:0},
+  screenTitle:{flex:1,fontSize:15,fontWeight:600},
+  editBtn:{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,fontSize:12,padding:"5px 11px",cursor:"pointer",fontFamily:"sans-serif",flexShrink:0},
+  dirChip:{fontSize:12,color:C.accent,background:C.accentGlow,padding:"2px 10px",borderRadius:99,fontFamily:"sans-serif",flexShrink:0},
+  quizPanel:{margin:"14px 20px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:"16px 16px 14px"},
+  qpLabel:{fontSize:12,color:C.textSub,fontFamily:"sans-serif",marginBottom:10},
+  qbig:{flex:1,padding:"12px 8px",background:C.accent,border:"none",borderRadius:10,color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"sans-serif"},
+  qbigDis:{flex:1,padding:"12px 8px",background:C.border,border:"none",borderRadius:10,color:C.textMuted,fontSize:14,fontWeight:600,cursor:"not-allowed",fontFamily:"sans-serif"},
+  emptyNote:{fontSize:12,color:C.textMuted,fontFamily:"sans-serif",textAlign:"center",padding:"8px 0 2px"},
+  section:{padding:"4px 20px"},
+  wordView:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",alignItems:"flex-start",gap:8},
+  wWord:{display:"block",fontSize:15,fontWeight:600},
+  wMeaning:{display:"block",fontSize:13,color:C.accent,fontFamily:"sans-serif",marginTop:2},
+  wEx:{display:"block",fontSize:11,color:C.textMuted,fontFamily:"sans-serif",marginTop:3},
+  formBox:{margin:"14px 20px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:18,display:"flex",flexDirection:"column",gap:12},
+  label:{fontSize:10,color:C.textSub,fontFamily:"sans-serif",letterSpacing:1.5,textTransform:"uppercase"},
+  input:{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:14,fontFamily:"sans-serif",width:"100%",boxSizing:"border-box"},
+  iconBtn:{background:"none",border:"none",cursor:"pointer",fontSize:15,padding:"2px 4px"},
+  bar:{height:3,background:C.border},
+  barFill:{height:"100%",background:C.accent,transition:"width 0.4s ease"},
+  quizCard:{margin:"12px 20px 0",background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,padding:"28px 22px",minHeight:200,display:"flex",flexDirection:"column",gap:14},
+  hint:{fontSize:12,color:C.textSub,fontFamily:"sans-serif",lineHeight:1.7,background:"#ffffff06",padding:"10px 12px",borderRadius:8,borderLeft:`3px solid ${C.border}`},
+  revealBtn:{width:"100%",padding:"15px",background:C.accent,border:"none",borderRadius:12,color:"#fff",fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"sans-serif"},
+  wrongBtn:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"14px 8px",background:"rgba(248,113,113,0.1)",border:`1.5px solid ${C.red}`,borderRadius:12,color:C.red,cursor:"pointer",fontFamily:"sans-serif"},
+  correctBtn:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"14px 8px",background:"rgba(74,222,128,0.1)",border:`1.5px solid ${C.green}`,borderRadius:12,color:C.green,cursor:"pointer",fontFamily:"sans-serif"},
+  settingsBox:{margin:"16px 20px",display:"flex",flexDirection:"column",gap:20},
+  stepBlock:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:18},
+  stepTitle:{fontSize:13,fontWeight:600,marginBottom:14,fontFamily:"sans-serif"},
+  stepRow:{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"},
+  stepNum:{background:C.accent,color:"#fff",borderRadius:99,width:20,height:20,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,fontFamily:"sans-serif",flexShrink:0,marginTop:1},
+  stepText:{fontSize:13,fontFamily:"sans-serif",color:C.text,lineHeight:1.5},
+  settingsNote:{fontSize:12,color:C.textMuted,fontFamily:"sans-serif",lineHeight:1.6},
+  syncBadge:{padding:"8px 14px",borderRadius:8,fontSize:12,fontFamily:"sans-serif"},
+  syncOk:{background:"rgba(74,222,128,0.1)",color:C.green,border:"1px solid rgba(74,222,128,0.3)"},
+  syncError:{background:"rgba(248,113,113,0.1)",color:C.red,border:"1px solid rgba(248,113,113,0.3)"},
+  syncLoading:{background:C.accentGlow,color:C.accent,border:`1px solid ${C.accent}44`},
+  btnPrimary:{padding:"10px 20px",background:C.accent,border:"none",borderRadius:10,color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"sans-serif"},
+  btnGhost:{padding:"10px 16px",background:"none",border:`1px solid ${C.border}`,borderRadius:10,color:C.textSub,fontSize:14,cursor:"pointer",fontFamily:"sans-serif"},
+  btnDis:{padding:"10px 20px",background:C.border,border:"none",borderRadius:10,color:C.textMuted,fontSize:14,cursor:"not-allowed",fontFamily:"sans-serif"},
+});
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>
